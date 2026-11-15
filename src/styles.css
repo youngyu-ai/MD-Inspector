@@ -186,6 +186,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .panel-title small { color: #a0a3b4; font-size: 9px; }
 .panel-status { display: inline-flex; align-items: center; gap: 6px; color: #9a9daf; font-size: 9px; }
 .live-dot { width: 6px; height: 6px; border-radius: 50%; background: #38bf86; box-shadow: 0 0 0 3px rgba(56,191,134,.12); }
+.preview-heading-actions { display: flex; align-items: center; gap: 6px; }
+.preview-copy-button { min-height: 28px; display: inline-flex; align-items: center; gap: 5px; padding: 0 9px; border: 1px solid #d5ebe2; border-radius: 7px; color: #278364; background: #f1faf6; font-size: 9px; font-weight: 650; white-space: nowrap; cursor: pointer; transition: background .15s, border-color .15s, color .15s; }
+.preview-copy-button:hover:not(:disabled) { border-color: #9bd4bd; color: #176a4e; background: #e7f7ef; }
+.preview-copy-button.copied { border-color: #b9e4d1; color: #17734f; background: #e7f7ef; }
+.preview-copy-button:disabled { opacity: .5; cursor: not-allowed; }
 .preview-expand { width: 28px; height: 28px; border-radius: 7px; font-size: 12px; }
 .editor-wrap { flex: 1 1 auto; min-height: 0; position: relative; display: flex; overflow: hidden; background: var(--surface); }
 .line-gutter { flex: 0 0 41px; padding: 17px 9px 14px 4px; display: flex; flex-direction: column; align-items: flex-end; gap: 0; overflow: hidden; color: #b7bac8; background: var(--surface-soft); border-right: 1px solid var(--border); font: 10px/24px var(--mono); user-select: none; }

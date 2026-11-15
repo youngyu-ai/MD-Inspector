@@ -55,3 +55,8 @@
 - [x] `https://youngyu-ai.github.io/MD-Inspector/` 必須載入可操作的 MD Inspector，不可直接服務 Vite 原始碼入口 `/src/main.tsx`。
 - [x] 靜態資源、WASM 與 worker 使用 GitHub Pages 專案子路徑 `/MD-Inspector/`，避免錯誤請求網域根目錄。
 - [x] GitHub Actions 以鎖定依賴建置 `dist` 並部署 Pages；修復後確認公開網址回應建置後的 bundle，非空白頁。
+
+## 14. Google 文件富格式複製
+- [x] 在「渲染預覽」欄位提供一鍵複製按鈕，將目前預覽內容連同格式複製到剪貼簿。
+- [x] 複製內容包含預覽的字體、標題層級、字級、行距、段距、表格與程式碼等樣式；複製輸出固定黑字白底，可直接貼到 Google 文件，且不更動原始 Markdown。
+- [x] 剪貼簿提供 `text/html` 富格式與 `text/plain` 純文字兩種表示；複製成功顯示明確提示，失敗不誤報成功。

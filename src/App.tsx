@@ -6,6 +6,7 @@ import type { PdfConversionState, PdfWorkerResponse } from './pdfTypes';
 import type { OcrLanguage } from './pdfOcr';
 import FormattingPanel from './FormattingPanel';
 import { cleanMarkdownLayout, createStyledHtmlDocument, FONT_FAMILIES, rebuildMarkdownTables, type ArticleTypography } from './formatting';
+import { copyRichPreview } from './richClipboard';
 
 type Theme = 'light' | 'dark';
 type ViewMode = 'split' | 'source' | 'preview';
@@ -171,6 +172,7 @@ function App() {
   const [isDragging, setIsDragging] = useState(false);
   const [notice, setNotice] = useState('');
   const [isCopied, setIsCopied] = useState(false);
+  const [previewCopyStatus, setPreviewCopyStatus] = useState<'idle' | 'rich' | 'plain'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pdfWorkerRef = useRef<Worker | null>(null);
@@ -587,6 +589,25 @@ function App() {
     }
   };
 
+  const copyRenderedPreview = async () => {
+    const preview = previewRef.current;
+    if (!preview || !content.trim()) {
+      showNotice('目前沒有可複製的預覽內容。');
+      return;
+    }
+
+    try {
+      const result = await copyRichPreview(preview);
+      setPreviewCopyStatus(result);
+      window.setTimeout(() => setPreviewCopyStatus('idle'), 2200);
+      showNotice(result === 'rich'
+        ? '已複製黑字白底的完整排版，前往 Google 文件直接貼上。'
+        : '只複製了純文字；此瀏覽器未保留排版格式。');
+    } catch {
+      showNotice('無法複製預覽格式；請允許此網站使用剪貼簿後再試。');
+    }
+  };
+
   const downloadMarkdown = () => {
     const blobUrl = URL.createObjectURL(new Blob([content], { type: 'text/markdown;charset=utf-8' }));
     const anchor = document.createElement('a');
@@ -720,7 +741,13 @@ function App() {
             <article className="work-panel preview-panel">
               <div className="panel-heading">
                 <div className="panel-title"><span className="panel-icon preview-icon"><i className="bi bi-eye" /></span><div><strong>渲染預覽</strong><small>最終閱讀效果</small></div></div>
-                <button className="preview-expand" type="button" onClick={() => setViewMode(viewMode === 'preview' ? 'split' : 'preview')} aria-label={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'} title={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'}><i className={`bi ${viewMode === 'preview' ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'}`} /></button>
+                <div className="preview-heading-actions">
+                  <button className={`preview-copy-button ${previewCopyStatus !== 'idle' ? 'copied' : ''}`} type="button" onClick={() => void copyRenderedPreview()} disabled={!content.trim()} aria-label={previewCopyStatus === 'rich' ? '排版已複製' : previewCopyStatus === 'plain' ? '純文字已複製，排版未保留' : '複製含排版的預覽內容'} title="以黑字白底複製目前的字體、標題、間距與表格格式，貼到 Google 文件">
+                    <i className={`bi ${previewCopyStatus === 'rich' ? 'bi-check2' : previewCopyStatus === 'plain' ? 'bi-file-text' : 'bi-clipboard-check'}`} />
+                    <span>{previewCopyStatus === 'rich' ? '已複製' : previewCopyStatus === 'plain' ? '純文字' : '複製排版'}</span>
+                  </button>
+                  <button className="preview-expand" type="button" onClick={() => setViewMode(viewMode === 'preview' ? 'split' : 'preview')} aria-label={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'} title={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'}><i className={`bi ${viewMode === 'preview' ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'}`} /></button>
+                </div>
               </div>
               <div className="preview-scroll"><div ref={previewRef} className={`markdown-preview article-style-${typography.style}`} style={previewTypographyVars} /></div>
               <div className="panel-footer"><span><i className="bi bi-shield-lock" /> 安全渲染</span><span>{analysis.outline.length} 個標題 <b>·</b> {analysis.elements.length} 個元素</span></div>
