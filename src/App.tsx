@@ -4,6 +4,8 @@ import { marked } from 'marked';
 import { analyzeMarkdown, getLineStart, type DocumentElement, type IssueCategory, type MarkdownIssue } from './analysis';
 import type { PdfConversionState, PdfWorkerResponse } from './pdfTypes';
 import type { OcrLanguage } from './pdfOcr';
+import FormattingPanel from './FormattingPanel';
+import { cleanMarkdownLayout, createStyledHtmlDocument, FONT_FAMILIES, rebuildMarkdownTables, type ArticleTypography } from './formatting';
 
 type Theme = 'light' | 'dark';
 type ViewMode = 'split' | 'source' | 'preview';
@@ -18,6 +20,15 @@ const OCR_LANGUAGE_OPTIONS: { value: OcrLanguage; label: string }[] = [
   { value: 'jpn+eng', label: '日本語 + English' },
   { value: 'kor+eng', label: '한국어 + English' },
 ];
+
+const DEFAULT_TYPOGRAPHY: ArticleTypography = {
+  style: 'editorial',
+  font: 'sans',
+  fontSize: 16,
+  lineHeight: 1.8,
+  paragraphGap: 0.9,
+  headingScale: 1,
+};
 
 const SAMPLE_MARKDOWN = `# Markdown 品質檢查
 
@@ -143,6 +154,7 @@ function App() {
   const [sourcePdfFile, setSourcePdfFile] = useState<File | null>(null);
   const [pdfStatus, setPdfStatus] = useState<PdfConversionState | null>(null);
   const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>('chi_tra+eng');
+  const [typography, setTypography] = useState<ArticleTypography>(DEFAULT_TYPOGRAPHY);
   const [isDirty, setIsDirty] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -181,12 +193,54 @@ function App() {
     const unsafeHtml = marked.parse(content, { gfm: true, breaks: false, async: false }) as string;
     return DOMPurify.sanitize(unsafeHtml, { USE_PROFILES: { html: true } });
   }, [content]);
+  const previewTypographyVars = useMemo(() => ({
+    '--article-font': FONT_FAMILIES[typography.font].css,
+    '--article-font-size': `${typography.fontSize}px`,
+    '--article-line-height': typography.lineHeight,
+    '--article-paragraph-gap': `${typography.paragraphGap}em`,
+    '--article-heading-scale': typography.headingScale,
+  } as CSSProperties), [typography]);
 
   const showNotice = useCallback((message: string) => {
     setNotice(message);
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     noticeTimerRef.current = setTimeout(() => setNotice(''), 2800);
   }, []);
+
+  const cleanLayout = () => {
+    const result = cleanMarkdownLayout(content);
+    if (!result.changed) {
+      showNotice('版面已整潔，沒有需要清理的多餘空白。');
+      return;
+    }
+    setContent(result.text);
+    setIsDirty(true);
+    const details = [result.blankLinesRemoved ? `移除 ${result.blankLinesRemoved} 個多餘空白行` : '', result.trailingSpaceLines ? `整理 ${result.trailingSpaceLines} 行尾空白` : ''].filter(Boolean).join('、');
+    showNotice(details ? `版面清理完成：${details}。` : '版面清理完成。');
+  };
+
+  const rebuildTables = () => {
+    const result = rebuildMarkdownTables(content);
+    if (!result.changed) {
+      showNotice(result.rebuiltTables ? '表格格式已整齊，沒有需要重建的項目。' : '沒有找到可重建的 Markdown 或 TSV 表格。');
+      return;
+    }
+    setContent(result.text);
+    setIsDirty(true);
+    showNotice(`表格重建完成：整理 ${result.rebuiltTables} 個表格。`);
+  };
+
+  const downloadStyledHtml = () => {
+    const title = fileName.replace(/\.(md|markdown)$/i, '') || 'Markdown 文章';
+    const html = createStyledHtmlDocument(title, renderedHtml, typography);
+    const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${title}.html`;
+    anchor.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showNotice('已下載套用目前預覽風格的 HTML 文章。');
+  };
 
   useEffect(() => {
     document.documentElement.setAttribute('data-bs-theme', theme);
@@ -584,7 +638,7 @@ function App() {
           <div>
             <div className="eyebrow"><span className="eyebrow-dot" /> 文件分析工作台</div>
             <h1>讓每份 Markdown，<span>一目了然。</span></h1>
-            <p>匯入 PDF 轉成 Markdown，再檢視結構、預覽排版並快速找到需要修正的地方。</p>
+            <p>貼上 Gemini Markdown 即可調整文章風格、字體、標題與間距；也能轉換 PDF、清理版面及重建表格。</p>
           </div>
           <div className="heading-actions">
             <button type="button" className="btn btn-soft" onClick={clearDocument}><i className="bi bi-trash3" /> 清除</button>
@@ -631,6 +685,14 @@ function App() {
           </div>
         </div>
 
+        <FormattingPanel
+          typography={typography}
+          onChange={(update) => setTypography((current) => ({ ...current, ...update }))}
+          onCleanLayout={cleanLayout}
+          onRebuildTables={rebuildTables}
+          onDownloadHtml={downloadStyledHtml}
+        />
+
         {pdfStatus && <PdfStatusBanner
           status={pdfStatus}
           onDismiss={() => setPdfStatus(null)}
@@ -660,7 +722,7 @@ function App() {
                 <div className="panel-title"><span className="panel-icon preview-icon"><i className="bi bi-eye" /></span><div><strong>渲染預覽</strong><small>最終閱讀效果</small></div></div>
                 <button className="preview-expand" type="button" onClick={() => setViewMode(viewMode === 'preview' ? 'split' : 'preview')} aria-label={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'} title={viewMode === 'preview' ? '返回並排檢視' : '放大預覽'}><i className={`bi ${viewMode === 'preview' ? 'bi-arrows-angle-contract' : 'bi-arrows-angle-expand'}`} /></button>
               </div>
-              <div className="preview-scroll"><div ref={previewRef} className="markdown-preview" /></div>
+              <div className="preview-scroll"><div ref={previewRef} className={`markdown-preview article-style-${typography.style}`} style={previewTypographyVars} /></div>
               <div className="panel-footer"><span><i className="bi bi-shield-lock" /> 安全渲染</span><span>{analysis.outline.length} 個標題 <b>·</b> {analysis.elements.length} 個元素</span></div>
             </article>
           </section>
