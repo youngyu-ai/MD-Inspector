@@ -49,9 +49,9 @@
 - [x] 對沒有可整理項目的文件給出明確結果提示，避免靜默誤導。
 
 ## 12. 網頁直接使用
-- [ ] 將完成的 MD Inspector 發布至可公開開啟的 HTTPS 網頁，任何持有該網址的人均可直接操作，不要求登入；保留使用者的私人 GitHub repository。
+- [x] 將完成的 MD Inspector 發布至可公開開啟的 HTTPS 網頁，任何持有該網址的人均可直接操作，不要求登入。
 
 ## 13. GitHub Pages 白頁修復
-- [ ] `https://youngyu-ai.github.io/MD-Inspector/` 必須載入可操作的 MD Inspector，不可直接服務 Vite 原始碼入口 `/src/main.tsx`。
-- [ ] 靜態資源、WASM 與 worker 使用 GitHub Pages 專案子路徑 `/MD-Inspector/`，避免錯誤請求網域根目錄。
-- [ ] GitHub Actions 以鎖定依賴建置 `dist` 並部署 Pages；修復後確認公開網址回應建置後的 bundle，非空白頁。
+- [x] `https://youngyu-ai.github.io/MD-Inspector/` 必須載入可操作的 MD Inspector，不可直接服務 Vite 原始碼入口 `/src/main.tsx`。
+- [x] 靜態資源、WASM 與 worker 使用 GitHub Pages 專案子路徑 `/MD-Inspector/`，避免錯誤請求網域根目錄。
+- [x] GitHub Actions 以鎖定依賴建置 `dist` 並部署 Pages；修復後確認公開網址回應建置後的 bundle，非空白頁。
