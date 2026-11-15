@@ -9,7 +9,18 @@ export type PdfWorkerResponse =
   | { kind: 'result'; result: PdfProcessResult; libraryVersion: string }
   | { kind: 'error'; message: string };
 
-export type PdfConversionPhase = 'loading' | 'extracting' | 'done' | 'partial' | 'needs-ocr' | 'error';
+export type PdfConversionPhase =
+  | 'loading'
+  | 'extracting'
+  | 'done'
+  | 'partial'
+  | 'needs-ocr'
+  | 'error'
+  | 'ocr-loading'
+  | 'ocr-running'
+  | 'ocr-done'
+  | 'ocr-cancelled'
+  | 'ocr-error';
 
 export interface PdfConversionState {
   phase: PdfConversionPhase;
@@ -21,4 +32,7 @@ export interface PdfConversionState {
   confidence?: number;
   pagesNeedingOcr?: number[];
   libraryVersion?: string;
+  ocrProgress?: number;
+  ocrCurrentPage?: number;
+  ocrTotalPages?: number;
 }

@@ -3,11 +3,21 @@ import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { analyzeMarkdown, getLineStart, type DocumentElement, type IssueCategory, type MarkdownIssue } from './analysis';
 import type { PdfConversionState, PdfWorkerResponse } from './pdfTypes';
+import type { OcrLanguage } from './pdfOcr';
 
 type Theme = 'light' | 'dark';
 type ViewMode = 'split' | 'source' | 'preview';
 type InspectorTab = 'outline' | 'issues' | 'elements';
 type IssueFilter = 'all' | IssueCategory;
+
+const OCR_LANGUAGE_OPTIONS: { value: OcrLanguage; label: string }[] = [
+  { value: 'chi_tra+eng', label: '繁體中文 + English' },
+  { value: 'chi_tra', label: '繁體中文' },
+  { value: 'eng', label: 'English' },
+  { value: 'chi_sim+eng', label: '简体中文 + English' },
+  { value: 'jpn+eng', label: '日本語 + English' },
+  { value: 'kor+eng', label: '한국어 + English' },
+];
 
 const SAMPLE_MARKDOWN = `# Markdown 品質檢查
 
@@ -132,6 +142,7 @@ function App() {
   const [loadedFile, setLoadedFile] = useState<File | null>(null);
   const [sourcePdfFile, setSourcePdfFile] = useState<File | null>(null);
   const [pdfStatus, setPdfStatus] = useState<PdfConversionState | null>(null);
+  const [ocrLanguage, setOcrLanguage] = useState<OcrLanguage>('chi_tra+eng');
   const [isDirty, setIsDirty] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -151,6 +162,7 @@ function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pdfInputRef = useRef<HTMLInputElement>(null);
   const pdfWorkerRef = useRef<Worker | null>(null);
+  const ocrControllerRef = useRef<AbortController | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -191,6 +203,7 @@ function App() {
 
   useEffect(() => () => {
     pdfWorkerRef.current?.terminate();
+    ocrControllerRef.current?.abort();
   }, []);
 
   useEffect(() => {
@@ -217,6 +230,8 @@ function App() {
   const setDocument = (nextContent: string, nextName: string, sourceFile: File | null = null) => {
     pdfWorkerRef.current?.terminate();
     pdfWorkerRef.current = null;
+    ocrControllerRef.current?.abort();
+    ocrControllerRef.current = null;
     setContent(nextContent);
     setFileName(nextName);
     setLoadedFile(sourceFile);
@@ -235,6 +250,8 @@ function App() {
     }
 
     pdfWorkerRef.current?.terminate();
+    ocrControllerRef.current?.abort();
+    ocrControllerRef.current = null;
     const worker = new Worker(new URL('./workers/pdf.worker.ts', import.meta.url), { type: 'module' });
     pdfWorkerRef.current = worker;
     setSourcePdfFile(file);
@@ -274,19 +291,20 @@ function App() {
         pagesNeedingOcr: pageList,
         libraryVersion: response.libraryVersion,
       };
+      const outputName = `${file.name.replace(/\.pdf$/i, '') || 'document'}.md`;
 
       if (!/[\p{L}\p{N}]/u.test(extractedText)) {
-        setSourcePdfFile(null);
+        setDocument(markdown, outputName);
+        setSourcePdfFile(file);
         setPdfStatus({
           ...baseStatus,
           phase: 'needs-ocr',
-          message: '沒有擷取到可讀文字。這份 PDF 可能是掃描影像；瀏覽器版不含 OCR，請先辨識文字後再匯入。',
+          message: '沒有擷取到可讀文字。可能是掃描影像，請執行 OCR；辨識完成後會把文字加入 Markdown。',
         });
         showNotice('這份 PDF 需要 OCR 才能轉換');
         return;
       }
 
-      const outputName = `${file.name.replace(/\.pdf$/i, '') || 'document'}.md`;
       setDocument(markdown, outputName);
       setSourcePdfFile(file);
       const hasOcrGaps = pageList.length > 0 || result.hasEncodingIssues;
@@ -325,6 +343,78 @@ function App() {
       showNotice('無法讀取 PDF 檔案');
     }
   };
+
+  const startOcr = async (mode: 'candidates' | 'all') => {
+    if (!sourcePdfFile || !pdfStatus?.pageCount) return;
+
+    ocrControllerRef.current?.abort();
+    const controller = new AbortController();
+    ocrControllerRef.current = controller;
+    const baseStatus = pdfStatus;
+    const candidatePages = baseStatus.pagesNeedingOcr ?? [];
+    const selectedPages = mode === 'candidates' && candidatePages.length ? candidatePages : null;
+    const totalPages = selectedPages?.length ?? baseStatus.pageCount;
+    setPdfStatus({
+      ...baseStatus,
+      phase: 'ocr-loading',
+      message: `正在準備 ${mode === 'all' ? '全文件' : selectedPages ? '候選頁' : '全文件'} OCR。首次使用需下載語言模型；PDF 仍留在本機。`,
+      ocrProgress: 0,
+      ocrCurrentPage: 1,
+      ocrTotalPages: totalPages,
+    });
+
+    try {
+      const { mergeOcrMarkdown, recognizePdfPages } = await import('./pdfOcr');
+      const result = await recognizePdfPages(sourcePdfFile, ocrLanguage, selectedPages, controller.signal, (progress) => {
+        if (ocrControllerRef.current !== controller) return;
+        setPdfStatus((current) => current ? {
+          ...current,
+          phase: progress.stage === 'loading' ? 'ocr-loading' : 'ocr-running',
+          message: progress.message,
+          ocrProgress: Math.round(progress.progress * 100),
+          ocrCurrentPage: progress.currentPage,
+          ocrTotalPages: progress.totalPages || totalPages,
+        } : current);
+      });
+      if (ocrControllerRef.current !== controller) return;
+
+      setContent((current) => mergeOcrMarkdown(current, result.pages));
+      if (result.pages.length) setIsDirty(true);
+      const failedNote = result.failedPages.length ? `；${result.failedPages.length} 頁無法辨識` : '';
+      const message = result.pages.length
+        ? `OCR 完成：${result.pages.length} 頁文字已加入 Markdown${failedNote}。`
+        : `OCR 已完成，但沒有辨識到可用文字；請檢查影像清晰度或嘗試其他語言。${failedNote}`;
+      setPdfStatus({
+        ...baseStatus,
+        phase: 'ocr-done',
+        message,
+        pagesNeedingOcr: [],
+        ocrProgress: 100,
+        ocrCurrentPage: totalPages,
+        ocrTotalPages: totalPages,
+      });
+      showNotice(result.pages.length ? 'OCR 文字已加入 Markdown' : 'OCR 完成，但未取得可讀文字');
+    } catch (error) {
+      if (ocrControllerRef.current !== controller) return;
+      if (controller.signal.aborted || (error instanceof DOMException && error.name === 'AbortError')) {
+        setPdfStatus({
+          ...baseStatus,
+          phase: 'ocr-cancelled',
+          message: 'OCR 已取消，已保留原本擷取的文字。若正在首次下載語言模型，瀏覽器可能會完成目前的下載。',
+          ocrProgress: 0,
+        });
+        showNotice('OCR 已取消');
+      } else {
+        const detail = error instanceof Error ? error.message : 'OCR 引擎無法辨識這份 PDF。';
+        setPdfStatus({ ...baseStatus, phase: 'ocr-error', message: `OCR 失敗：${detail}`, ocrProgress: 0 });
+        showNotice('OCR 失敗；可以調整語言後再試一次');
+      }
+    } finally {
+      if (ocrControllerRef.current === controller) ocrControllerRef.current = null;
+    }
+  };
+
+  const cancelOcr = () => ocrControllerRef.current?.abort();
 
   const loadFile = async (file: File | undefined) => {
     if (!file) return;
@@ -541,7 +631,14 @@ function App() {
           </div>
         </div>
 
-        {pdfStatus && <PdfStatusBanner status={pdfStatus} onDismiss={() => setPdfStatus(null)} />}
+        {pdfStatus && <PdfStatusBanner
+          status={pdfStatus}
+          onDismiss={() => setPdfStatus(null)}
+          onRunOcr={sourcePdfFile ? startOcr : undefined}
+          onCancelOcr={cancelOcr}
+          language={ocrLanguage}
+          onLanguageChange={setOcrLanguage}
+        />}
 
         <div className={`workspace-layout ${isDragging ? 'is-dragging' : ''}`} data-view={viewMode}>
           <section className="document-workspace" aria-label="Markdown 編輯與預覽">
@@ -596,7 +693,21 @@ function App() {
   );
 }
 
-function PdfStatusBanner({ status, onDismiss }: { status: PdfConversionState; onDismiss: () => void }) {
+function PdfStatusBanner({
+  status,
+  onDismiss,
+  onRunOcr,
+  onCancelOcr,
+  language,
+  onLanguageChange,
+}: {
+  status: PdfConversionState;
+  onDismiss: () => void;
+  onRunOcr?: (mode: 'candidates' | 'all') => void;
+  onCancelOcr: () => void;
+  language: OcrLanguage;
+  onLanguageChange: (language: OcrLanguage) => void;
+}) {
   const titles: Record<PdfConversionState['phase'], string> = {
     loading: '正在準備 PDF 解析器',
     extracting: '正在轉換 PDF',
@@ -604,11 +715,19 @@ function PdfStatusBanner({ status, onDismiss }: { status: PdfConversionState; on
     partial: 'PDF 已部分轉換',
     'needs-ocr': '此 PDF 需要 OCR',
     error: 'PDF 轉換失敗',
+    'ocr-loading': '正在載入 OCR 引擎',
+    'ocr-running': '正在辨識 PDF 頁面',
+    'ocr-done': 'OCR 辨識完成',
+    'ocr-cancelled': 'OCR 已取消',
+    'ocr-error': 'OCR 執行失敗',
   };
   const typeLabels = { TextBased: '文字型', Scanned: '掃描型', ImageBased: '影像型', Mixed: '混合型' };
-  const isWorking = status.phase === 'loading' || status.phase === 'extracting';
+  const isWorking = status.phase === 'loading' || status.phase === 'extracting' || status.phase === 'ocr-loading' || status.phase === 'ocr-running';
+  const isOcrWorking = status.phase === 'ocr-loading' || status.phase === 'ocr-running';
+  const ocrPages = status.pagesNeedingOcr ?? [];
+  const canRunOcr = Boolean(onRunOcr && status.pageCount && !isWorking);
   return <section className={`pdf-status-banner pdf-status-${status.phase}`} role="status" aria-live="polite">
-    <span className="pdf-status-icon"><i className={`bi ${isWorking ? 'bi-arrow-repeat' : status.phase === 'error' || status.phase === 'needs-ocr' ? 'bi-exclamation-triangle' : status.phase === 'partial' ? 'bi-exclamation-circle' : 'bi-file-earmark-check'}`} /></span>
+    <span className="pdf-status-icon"><i className={`bi ${isWorking ? 'bi-arrow-repeat' : status.phase === 'error' || status.phase === 'needs-ocr' || status.phase === 'ocr-error' ? 'bi-exclamation-triangle' : status.phase === 'partial' ? 'bi-exclamation-circle' : 'bi-file-earmark-check'}`} /></span>
     <div className="pdf-status-content">
       <strong>{titles[status.phase]}</strong>
       <p>{status.message}</p>
@@ -618,6 +737,19 @@ function PdfStatusBanner({ status, onDismiss }: { status: PdfConversionState; on
         {status.processingTimeMs !== undefined && <span>{status.processingTimeMs.toFixed(0)} ms</span>}
         {status.confidence !== undefined && <span>判定信心 {Math.round(status.confidence * 100)}%</span>}
       </small>}
+      {isOcrWorking && <div className="ocr-progress-wrap">
+        <div className="ocr-progress" role="progressbar" aria-label="OCR 進度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={status.ocrProgress ?? 0}><span style={{ width: `${status.ocrProgress ?? 0}%` }} /></div>
+        <small>{status.ocrCurrentPage ?? 0} / {status.ocrTotalPages ?? 0} 頁</small>
+      </div>}
+      {canRunOcr && <div className="pdf-ocr-controls">
+        <label htmlFor="pdf-ocr-language">辨識語言</label>
+        <select id="pdf-ocr-language" value={language} onChange={(event) => onLanguageChange(event.target.value as OcrLanguage)}>
+          {OCR_LANGUAGE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+        </select>
+        {ocrPages.length > 0 && <button type="button" className="pdf-ocr-button" onClick={() => onRunOcr?.('candidates')}>辨識候選頁（{ocrPages.length}）</button>}
+        <button type="button" className="pdf-ocr-button secondary" onClick={() => onRunOcr?.('all')}>{ocrPages.length ? '辨識全部頁面' : '開始全頁 OCR'}</button>
+      </div>}
+      {isOcrWorking && <button type="button" className="pdf-ocr-button cancel" onClick={onCancelOcr}>取消 OCR</button>}
     </div>
     <button type="button" className="pdf-status-dismiss" onClick={onDismiss} aria-label="關閉 PDF 轉換狀態"><i className="bi bi-x-lg" /></button>
   </section>;

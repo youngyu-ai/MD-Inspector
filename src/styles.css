@@ -102,6 +102,20 @@ button { -webkit-tap-highlight-color: transparent; }
 .pdf-status-needs-ocr, .pdf-status-error { border-color: #f0d0d0; }
 .pdf-status-needs-ocr .pdf-status-icon, .pdf-status-error .pdf-status-icon { color: #c45863; background: #fff0f2; }
 .pdf-status-loading .pdf-status-icon i, .pdf-status-extracting .pdf-status-icon i { animation: pdf-spin 1.1s linear infinite; }
+.pdf-status-ocr-loading, .pdf-status-ocr-running { border-color: #d8d4ff; }
+.pdf-status-ocr-loading .pdf-status-icon, .pdf-status-ocr-running .pdf-status-icon { color: #6658e3; background: #f1efff; }
+.pdf-status-ocr-loading .pdf-status-icon i, .pdf-status-ocr-running .pdf-status-icon i { animation: pdf-spin 1.1s linear infinite; }
+.pdf-ocr-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 9px; }
+.pdf-ocr-controls label { color: #85899d; font-size: 9px; font-weight: 600; }
+.pdf-ocr-controls select { height: 28px; max-width: 175px; padding: 0 23px 0 8px; border: 1px solid var(--border); border-radius: 7px; color: var(--ink); background: var(--surface); font-size: 9px; }
+.pdf-ocr-button { min-height: 28px; padding: 0 9px; border: 1px solid #dedaff; border-radius: 7px; color: #5f52da; background: #f5f3ff; font-size: 9px; font-weight: 600; cursor: pointer; }
+.pdf-ocr-button:hover { color: #fff; border-color: #6357df; background: #6357df; }
+.pdf-ocr-button.secondary { color: #697087; border-color: var(--border); background: var(--surface); }
+.pdf-ocr-button.cancel { margin-top: 8px; color: #bd4e5b; border-color: #f0d0d0; background: #fff5f5; }
+.ocr-progress-wrap { display: flex; align-items: center; gap: 9px; margin-top: 8px; }
+.ocr-progress-wrap > small { flex: 0 0 auto; color: #9296a8; font: 9px var(--mono); }
+.ocr-progress { height: 5px; flex: 1; overflow: hidden; border-radius: 9px; background: var(--brand-soft); }
+.ocr-progress span { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #7868f4, #4f43d0); transition: width .18s ease; }
 @keyframes pdf-spin { to { transform: rotate(360deg); } }
 .document-identity { display: flex; align-items: center; gap: 9px; min-width: 170px; }
 .file-icon { width: 32px; height: 32px; color: var(--brand); background: var(--brand-soft); display: grid; place-items: center; border-radius: 9px; font-size: 17px; }
@@ -352,6 +366,8 @@ button { -webkit-tap-highlight-color: transparent; }
   .pdf-status-banner { grid-template-columns: 30px minmax(0, 1fr) 25px; gap: 8px; padding: 10px; }
   .pdf-status-meta { gap: 5px 8px; font-size: 8px; }
   .pdf-status-meta span + span::before { margin-right: 8px; }
+  .pdf-ocr-controls { gap: 6px; }
+  .pdf-ocr-controls select { max-width: 100%; }
   .file-meta strong { max-width: 142px; }
   .stat-icon { flex-basis: 26px; width: 26px; height: 26px; }
   .stat-card { gap: 6px; }

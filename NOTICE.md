@@ -62,3 +62,17 @@ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## Tesseract.js、tesseract.js-core 與 PDF.js — Apache License 2.0
+
+瀏覽器 OCR 使用 Tesseract.js 7.0.0；PDF 頁面渲染使用 Mozilla PDF.js 6.5.438。這些程式套件採用 Apache License 2.0；全文見 [`licenses/Apache-2.0.txt`](./licenses/Apache-2.0.txt)。
+
+Tesseract.js: https://github.com/naptha/tesseract.js
+
+tesseract.js-core: https://github.com/naptha/tesseract.js-core
+
+PDF.js: https://github.com/mozilla/pdf.js
+
+## Tesseract OCR 語言資料 — MIT License
+
+瀏覽器會依使用者選取的語言，從 `@tesseract.js-data/<語言>` 套件的 CDN 資料路徑下載訓練資料。繁體中文與英文語言資料套件的 npm metadata 宣告為 MIT；來源 repository 為 https://github.com/naptha/tessdata 。訓練資料在執行時下載，本專案原始碼不隨附這些資料檔。
