@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, ty
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
 import { analyzeMarkdown, getLineStart, type DocumentElement, type IssueCategory, type MarkdownIssue } from './analysis';
+import type { PdfConversionState, PdfWorkerResponse } from './pdfTypes';
 
 type Theme = 'light' | 'dark';
 type ViewMode = 'split' | 'source' | 'preview';
@@ -129,6 +130,8 @@ function App() {
   const [content, setContent] = useState(SAMPLE_MARKDOWN);
   const [fileName, setFileName] = useState('quick-start.md');
   const [loadedFile, setLoadedFile] = useState<File | null>(null);
+  const [sourcePdfFile, setSourcePdfFile] = useState<File | null>(null);
+  const [pdfStatus, setPdfStatus] = useState<PdfConversionState | null>(null);
   const [isDirty, setIsDirty] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     try {
@@ -146,6 +149,8 @@ function App() {
   const [notice, setNotice] = useState('');
   const [isCopied, setIsCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+  const pdfWorkerRef = useRef<Worker | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -184,6 +189,10 @@ function App() {
     if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
   }, []);
 
+  useEffect(() => () => {
+    pdfWorkerRef.current?.terminate();
+  }, []);
+
   useEffect(() => {
     const root = previewRef.current;
     if (!root) return;
@@ -206,19 +215,127 @@ function App() {
   };
 
   const setDocument = (nextContent: string, nextName: string, sourceFile: File | null = null) => {
+    pdfWorkerRef.current?.terminate();
+    pdfWorkerRef.current = null;
     setContent(nextContent);
     setFileName(nextName);
     setLoadedFile(sourceFile);
+    setSourcePdfFile(null);
+    setPdfStatus(null);
     setIsDirty(false);
     setSearchQuery('');
     setSearchCursor(0);
   };
 
+  const processPdfFile = async (file: File) => {
+    const maxSize = 100 * 1024 * 1024;
+    if (file.size > maxSize) {
+      showNotice('PDF 超過 100 MB，為避免瀏覽器記憶體不足，請先縮小檔案。');
+      return;
+    }
+
+    pdfWorkerRef.current?.terminate();
+    const worker = new Worker(new URL('./workers/pdf.worker.ts', import.meta.url), { type: 'module' });
+    pdfWorkerRef.current = worker;
+    setSourcePdfFile(file);
+    setPdfStatus({ phase: 'loading', fileName: file.name, message: '準備在瀏覽器中解析 PDF…' });
+
+    worker.onmessage = (event: MessageEvent<PdfWorkerResponse>) => {
+      if (pdfWorkerRef.current !== worker) return;
+      const response = event.data;
+      if (response.kind === 'status') {
+        setPdfStatus({ phase: response.phase, fileName: file.name, message: response.message });
+        return;
+      }
+
+      worker.terminate();
+      pdfWorkerRef.current = null;
+      if (response.kind === 'error') {
+        setSourcePdfFile(null);
+        setPdfStatus({ phase: 'error', fileName: file.name, message: response.message });
+        showNotice('PDF 轉換失敗');
+        return;
+      }
+
+      const { result } = response;
+      const pageList = result.pagesNeedingOcr ?? [];
+      const markdown = result.markdown ?? '';
+      const extractedText = markdown
+        .replace(/<!--\s*Page\s+\d+\s*-->/gi, '')
+        .replace(/!\[[^\]]*\]\([^)]*\)/g, '');
+      const baseStatus: PdfConversionState = {
+        phase: 'done',
+        fileName: file.name,
+        message: '',
+        pdfType: result.pdfType,
+        pageCount: result.pageCount,
+        processingTimeMs: result.processingTimeMs,
+        confidence: result.confidence,
+        pagesNeedingOcr: pageList,
+        libraryVersion: response.libraryVersion,
+      };
+
+      if (!/[\p{L}\p{N}]/u.test(extractedText)) {
+        setSourcePdfFile(null);
+        setPdfStatus({
+          ...baseStatus,
+          phase: 'needs-ocr',
+          message: '沒有擷取到可讀文字。這份 PDF 可能是掃描影像；瀏覽器版不含 OCR，請先辨識文字後再匯入。',
+        });
+        showNotice('這份 PDF 需要 OCR 才能轉換');
+        return;
+      }
+
+      const outputName = `${file.name.replace(/\.pdf$/i, '') || 'document'}.md`;
+      setDocument(markdown, outputName);
+      setSourcePdfFile(file);
+      const hasOcrGaps = pageList.length > 0 || result.hasEncodingIssues;
+      const pageNote = pageList.length ? `；解析器標記第 ${pageList.join('、')} 頁可能需要 OCR` : '';
+      const encodingNote = result.hasEncodingIssues ? '；部分字元可能因 PDF 字型編碼而失真' : '';
+      setPdfStatus({
+        ...baseStatus,
+        phase: hasOcrGaps ? 'partial' : 'done',
+        message: hasOcrGaps
+          ? `已載入可擷取文字${pageNote}${encodingNote}；本機解析只抽取文字，不執行 OCR。`
+          : '已在瀏覽器本機完成 PDF 文字擷取。',
+      });
+      setActiveTab('outline');
+      setViewMode('split');
+      showNotice(hasOcrGaps ? 'PDF 已部分轉換，請留意待 OCR 頁面' : 'PDF 已轉換為 Markdown');
+    };
+
+    worker.onerror = (event) => {
+      if (pdfWorkerRef.current !== worker) return;
+      worker.terminate();
+      pdfWorkerRef.current = null;
+      setSourcePdfFile(null);
+      setPdfStatus({ phase: 'error', fileName: file.name, message: event.message || 'PDF 解析器發生錯誤。' });
+      showNotice('PDF 轉換失敗');
+    };
+
+    try {
+      const fileBuffer = await file.arrayBuffer();
+      if (pdfWorkerRef.current !== worker) return;
+      worker.postMessage({ fileBuffer }, [fileBuffer]);
+    } catch {
+      worker.terminate();
+      if (pdfWorkerRef.current === worker) pdfWorkerRef.current = null;
+      setSourcePdfFile(null);
+      setPdfStatus({ phase: 'error', fileName: file.name, message: '無法讀取這份 PDF 檔案。' });
+      showNotice('無法讀取 PDF 檔案');
+    }
+  };
+
   const loadFile = async (file: File | undefined) => {
     if (!file) return;
+    if (file.type === 'application/pdf' || /\.pdf$/i.test(file.name)) {
+      void processPdfFile(file);
+      return;
+    }
     if (!/\.(md|markdown)$/i.test(file.name)) {
-      showNotice('請選擇 .md 或 .markdown 檔案。');
+      showNotice('請選擇 .md、.markdown 或 PDF 檔案。');
       if (fileInputRef.current) fileInputRef.current.value = '';
+      if (pdfInputRef.current) pdfInputRef.current.value = '';
       return;
     }
     try {
@@ -234,6 +351,10 @@ function App() {
     void loadFile(event.target.files?.[0]);
   };
 
+  const reloadPdf = () => {
+    if (sourcePdfFile) void processPdfFile(sourcePdfFile);
+  };
+
   const handleDrop = (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
     setIsDragging(false);
@@ -241,6 +362,10 @@ function App() {
   };
 
   const reloadDocument = async () => {
+    if (sourcePdfFile) {
+      reloadPdf();
+      return;
+    }
     if (loadedFile) {
       try {
         setContent(await loadedFile.text());
@@ -369,12 +494,14 @@ function App() {
           <div>
             <div className="eyebrow"><span className="eyebrow-dot" /> 文件分析工作台</div>
             <h1>讓每份 Markdown，<span>一目了然。</span></h1>
-            <p>檢視文件結構、預覽排版，並快速找到需要修正的地方。</p>
+            <p>匯入 PDF 轉成 Markdown，再檢視結構、預覽排版並快速找到需要修正的地方。</p>
           </div>
           <div className="heading-actions">
             <button type="button" className="btn btn-soft" onClick={clearDocument}><i className="bi bi-trash3" /> 清除</button>
+            <button type="button" className="btn btn-pdf" onClick={() => pdfInputRef.current?.click()}><i className="bi bi-file-earmark-pdf" /> PDF 轉 Markdown</button>
             <button type="button" className="btn btn-primary-gradient" onClick={() => fileInputRef.current?.click()}><i className="bi bi-folder2-open" /> 開啟 Markdown <kbd>⌘O</kbd></button>
             <input ref={fileInputRef} type="file" accept=".md,.markdown,text/markdown,text/plain" className="visually-hidden" onChange={handleFileChange} aria-label="選取 Markdown 檔案" />
+            <input ref={pdfInputRef} type="file" accept=".pdf,application/pdf" className="visually-hidden" onChange={(event) => { const file = event.target.files?.[0]; if (file) void processPdfFile(file); event.target.value = ''; }} aria-label="選取 PDF 並轉換為 Markdown" />
           </div>
         </section>
 
@@ -413,6 +540,8 @@ function App() {
             </div>
           </div>
         </div>
+
+        {pdfStatus && <PdfStatusBanner status={pdfStatus} onDismiss={() => setPdfStatus(null)} />}
 
         <div className={`workspace-layout ${isDragging ? 'is-dragging' : ''}`} data-view={viewMode}>
           <section className="document-workspace" aria-label="Markdown 編輯與預覽">
@@ -461,10 +590,37 @@ function App() {
         <footer className="app-footer"><span>MD Inspector <b>·</b> 在本機檢視你的 Markdown</span><a href="https://github.com/firecrawl/pdf-inspector" target="_blank" rel="noreferrer">開源靈感：Firecrawl PDF Inspector <i className="bi bi-box-arrow-up-right" /></a></footer>
       </main>
 
-      {isDragging && <div className="drop-overlay" aria-live="polite"><div className="drop-card"><span><i className="bi bi-cloud-arrow-down" /></span><strong>放開以載入 Markdown</strong><small>只接受 .md 與 .markdown 檔案</small></div></div>}
+      {isDragging && <div className="drop-overlay" aria-live="polite"><div className="drop-card"><span><i className="bi bi-cloud-arrow-down" /></span><strong>放開以載入文件</strong><small>支援 .md、.markdown 與 .pdf</small></div></div>}
       {notice && <div className="notice-toast" role="status"><i className="bi bi-check-circle-fill" /> {notice}</div>}
     </div>
   );
+}
+
+function PdfStatusBanner({ status, onDismiss }: { status: PdfConversionState; onDismiss: () => void }) {
+  const titles: Record<PdfConversionState['phase'], string> = {
+    loading: '正在準備 PDF 解析器',
+    extracting: '正在轉換 PDF',
+    done: 'PDF 已轉成 Markdown',
+    partial: 'PDF 已部分轉換',
+    'needs-ocr': '此 PDF 需要 OCR',
+    error: 'PDF 轉換失敗',
+  };
+  const typeLabels = { TextBased: '文字型', Scanned: '掃描型', ImageBased: '影像型', Mixed: '混合型' };
+  const isWorking = status.phase === 'loading' || status.phase === 'extracting';
+  return <section className={`pdf-status-banner pdf-status-${status.phase}`} role="status" aria-live="polite">
+    <span className="pdf-status-icon"><i className={`bi ${isWorking ? 'bi-arrow-repeat' : status.phase === 'error' || status.phase === 'needs-ocr' ? 'bi-exclamation-triangle' : status.phase === 'partial' ? 'bi-exclamation-circle' : 'bi-file-earmark-check'}`} /></span>
+    <div className="pdf-status-content">
+      <strong>{titles[status.phase]}</strong>
+      <p>{status.message}</p>
+      {(status.pageCount !== undefined || status.pdfType || status.processingTimeMs !== undefined) && <small className="pdf-status-meta">
+        {status.pdfType && <span>{typeLabels[status.pdfType]} PDF</span>}
+        {status.pageCount !== undefined && <span>{status.pageCount} 頁</span>}
+        {status.processingTimeMs !== undefined && <span>{status.processingTimeMs.toFixed(0)} ms</span>}
+        {status.confidence !== undefined && <span>判定信心 {Math.round(status.confidence * 100)}%</span>}
+      </small>}
+    </div>
+    <button type="button" className="pdf-status-dismiss" onClick={onDismiss} aria-label="關閉 PDF 轉換狀態"><i className="bi bi-x-lg" /></button>
+  </section>;
 }
 
 function StatCard({ icon, label, value, hint, tone }: { icon: string; label: string; value: string; hint: string; tone: string }) {

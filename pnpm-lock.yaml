@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@firecrawl/pdf-inspector-wasm':
+        specifier: 1.26.0
+        version: 1.26.0
       bootstrap:
         specifier: ^5.3.7
         version: 5.3.9(@popperjs/core@2.11.8)
@@ -283,6 +286,9 @@ packages:
     engines: {node: '>=18'}
     cpu: [x64]
     os: [win32]
+
+  '@firecrawl/pdf-inspector-wasm@1.26.0':
+    resolution: {integrity: sha512-cqLzgjcPUhdu+HFiGo0zDlfMlEjTb6qO6vWAvhgOqliQPWbshVGGQMrkqcOykXJgKtfAWX1JH9kY5xVKgswLzg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -872,6 +878,8 @@ snapshots:
 
   '@esbuild/win32-x64@0.25.12':
     optional: true
+
+  '@firecrawl/pdf-inspector-wasm@1.26.0': {}
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

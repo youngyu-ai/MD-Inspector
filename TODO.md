@@ -20,3 +20,9 @@
 
 ## 5. GitHub 交付
 - [x] 完成後建置在我的 GITHUB；將完成的網站版本依專案 GitHub 連接流程交付到使用者 GitHub，並確認平台回報切換完成。
+
+## 6. PDF 匯入與 Markdown 轉換
+- [x] 支援拖放或選取本機 PDF，將文件轉換成 Markdown 並載入既有編輯器與預覽。
+- [x] 在瀏覽器端以 pdf-inspector WebAssembly 解析 PDF，不將 PDF 檔案上傳至伺服器。
+- [x] 顯示轉換狀態、頁數及 PDF 分類；對影像掃描或缺少可抽取文字的 PDF 明確提示 OCR 限制，不以空白結果冒充成功。
+- [x] 轉換結果可繼續編輯、檢查、複製或下載為 Markdown。
