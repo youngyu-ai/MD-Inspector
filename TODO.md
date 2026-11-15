@@ -50,3 +50,8 @@
 
 ## 12. 網頁直接使用
 - [ ] 將完成的 MD Inspector 發布至可公開開啟的 HTTPS 網頁，任何持有該網址的人均可直接操作，不要求登入；保留使用者的私人 GitHub repository。
+
+## 13. GitHub Pages 白頁修復
+- [ ] `https://youngyu-ai.github.io/MD-Inspector/` 必須載入可操作的 MD Inspector，不可直接服務 Vite 原始碼入口 `/src/main.tsx`。
+- [ ] 靜態資源、WASM 與 worker 使用 GitHub Pages 專案子路徑 `/MD-Inspector/`，避免錯誤請求網域根目錄。
+- [ ] GitHub Actions 以鎖定依賴建置 `dist` 並部署 Pages；修復後確認公開網址回應建置後的 bundle，非空白頁。

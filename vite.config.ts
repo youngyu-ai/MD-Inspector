@@ -1,7 +1,8 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
+  base: mode === 'pages' ? '/MD-Inspector/' : '/',
   plugins: [react()],
   optimizeDeps: {
     include: ['pdfjs-dist', 'tesseract.js'],
@@ -21,4 +22,4 @@ export default defineConfig({
     outDir: 'dist',
     sourcemap: false,
   },
-});
+}));
